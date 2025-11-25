@@ -1,4 +1,4 @@
-import EdgeTierRoiSimple from "@/components/EdgeTierRoiSimple";
+import EdgeTierRoiSimple from "../components/EdgeTierRoiSimple";
 
 export default function Home() {
   return (
