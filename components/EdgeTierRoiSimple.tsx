@@ -2,12 +2,14 @@
 
 import React, { useMemo, useState } from "react";
 
-type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
+type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 const WORKING_HOURS_PER_YEAR = 1760;
+const DEFAULT_COST_PER_AGENT = 45000; // simple internal assumption
 
 const TEAM_SIZE_MAP = {
-  "10-25": 20,
+  "1-10": 8,
+  "11-25": 20,
   "26-50": 40,
   "51-100": 80,
   "101-250": 150,
@@ -15,15 +17,8 @@ const TEAM_SIZE_MAP = {
 } as const;
 type TeamSizeBand = keyof typeof TEAM_SIZE_MAP;
 
-const REGION_COST_MAP = {
-  UK_IE_NORDICS_ANZ: 50000,
-  SOUTHERN_EUROPE: 42000,
-  EASTERN_EUROPE: 30000,
-  APAC_INDIA_PH: 25000,
-} as const;
-type RegionBand = keyof typeof REGION_COST_MAP;
-
 const CONTACTS_PER_AGENT_MAP = {
+  "10-20": 15,
   "20-30": 25,
   "30-40": 35,
   "40-60": 50,
@@ -84,27 +79,23 @@ const COMPLEXITY_LEVELS: Record<
   },
 };
 
-type AiMaturity = "low" | "moderate" | "advanced";
+type AiLevel = "low" | "medium" | "high";
 
 const AI_IMPROVEMENTS: Record<
-  AiMaturity,
-  {
-    ahtReductionPct: number;
-    qaEfficiencyGainPct: number;
-    contactDeflectionPct: number;
-  }
+  AiLevel,
+  { ahtReductionPct: number; qaEfficiencyGainPct: number; contactDeflectionPct: number }
 > = {
   low: {
     ahtReductionPct: 15,
     qaEfficiencyGainPct: 60,
     contactDeflectionPct: 20,
   },
-  moderate: {
+  medium: {
     ahtReductionPct: 12,
     qaEfficiencyGainPct: 50,
     contactDeflectionPct: 15,
   },
-  advanced: {
+  high: {
     ahtReductionPct: 8,
     qaEfficiencyGainPct: 35,
     contactDeflectionPct: 10,
@@ -112,8 +103,6 @@ const AI_IMPROVEMENTS: Record<
 };
 
 type RevenueBand = "unknown" | "lt50" | "50-250" | "250-1000" | "gt1000";
-type RevenueImpact = "cost" | "retention" | "upsell";
-type RolloutScope = "single" | "few" | "multi";
 
 const formatCurrency = (value: number, currency = "€") => {
   if (!Number.isFinite(value)) return "-";
@@ -145,46 +134,35 @@ const ASSUMPTIONS = {
 const EdgeTierRoiSimple: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
 
-  // Step 1 – Team profile
-  const [teamSizeBand, setTeamSizeBand] = useState<TeamSizeBand>("51-100");
-  const [costMode, setCostMode] = useState<"known" | "benchmark">("benchmark");
-  const [knownCostPerAgent, setKnownCostPerAgent] = useState(45000);
-  const [regionBand, setRegionBand] =
-    useState<RegionBand>("UK_IE_NORDICS_ANZ");
+  // Step 1 – team size
+  const [teamSizeBand, setTeamSizeBand] = useState<TeamSizeBand>("26-50");
 
-  // Step 2 – Volume & complexity
+  // Step 2 – volume
   const [contactVolumeBand, setContactVolumeBand] =
-    useState<ContactVolumeBand>("40-60");
+    useState<ContactVolumeBand>("30-40");
+
+  // Step 3 – complexity
   const [complexityLevel, setComplexityLevel] =
     useState<ComplexityLevel>(3);
 
-  // Step 3 – AI / automation maturity
-  const [aiMaturity, setAiMaturity] = useState<AiMaturity>("moderate");
+  // Step 4 – AI level
+  const [aiLevel, setAiLevel] = useState<AiLevel>("medium");
 
-  // Step 4 – Priority outcomes
+  // Step 5 – priorities
   const [priorityAht, setPriorityAht] = useState(true);
   const [priorityQa, setPriorityQa] = useState(true);
   const [priorityDeflection, setPriorityDeflection] = useState(true);
   const [priorityCx, setPriorityCx] = useState(false);
 
-  // Step 5 – Business & revenue
+  // Step 6 – business size + revenue toggle
   const [revenueBand, setRevenueBand] =
     useState<RevenueBand>("unknown");
-  const [revenueImpact, setRevenueImpact] =
-    useState<RevenueImpact>("retention");
-  const [skipRevenueImpact, setSkipRevenueImpact] = useState(true);
-
-  // Step 6 – Rollout & investment
-  const [rolloutScope, setRolloutScope] =
-    useState<RolloutScope>("single");
-  const [investmentMode, setInvestmentMode] =
-    useState<"auto" | "custom">("auto");
-  const [customEdgetierCost, setCustomEdgetierCost] =
-    useState(180000);
+  const [includeRevenueImpact, setIncludeRevenueImpact] =
+    useState(false);
 
   const goNext = () =>
     setCurrentStep((prev) =>
-      prev < 6 ? ((prev + 1) as WizardStep) : prev
+      prev < 7 ? ((prev + 1) as WizardStep) : prev
     );
   const goBack = () =>
     setCurrentStep((prev) =>
@@ -193,19 +171,12 @@ const EdgeTierRoiSimple: React.FC = () => {
 
   const results = useMemo(() => {
     const numAgents =
-      TEAM_SIZE_MAP[teamSizeBand] ?? TEAM_SIZE_MAP["51-100"];
-
-    let annualCostPerAgent: number;
-    if (costMode === "known" && knownCostPerAgent > 0) {
-      annualCostPerAgent = knownCostPerAgent;
-    } else {
-      annualCostPerAgent =
-        REGION_COST_MAP[regionBand] ?? REGION_COST_MAP.UK_IE_NORDICS_ANZ;
-    }
+      TEAM_SIZE_MAP[teamSizeBand] ?? TEAM_SIZE_MAP["26-50"];
+    const annualCostPerAgent = DEFAULT_COST_PER_AGENT;
 
     const contactsPerAgentPerDay =
       CONTACTS_PER_AGENT_MAP[contactVolumeBand] ??
-      CONTACTS_PER_AGENT_MAP["40-60"];
+      CONTACTS_PER_AGENT_MAP["30-40"];
     const workingDaysPerMonth = 21;
     const contactsPerMonth =
       numAgents * contactsPerAgentPerDay * workingDaysPerMonth;
@@ -228,7 +199,7 @@ const EdgeTierRoiSimple: React.FC = () => {
         ? baselineHandlingCost / contactsPerYear
         : 0;
 
-    const baseImprovements = AI_IMPROVEMENTS[aiMaturity];
+    const baseImprovements = AI_IMPROVEMENTS[aiLevel];
     const baseAhtReductionPct = baseImprovements.ahtReductionPct;
     const baseQaEfficiencyGainPct =
       baseImprovements.qaEfficiencyGainPct;
@@ -244,14 +215,11 @@ const EdgeTierRoiSimple: React.FC = () => {
     const contactDeflectionPct =
       baseContactDeflectionPct * deflectionFactor;
 
+    // Revenue side – simple approximation if they chose to include it
     let annualRevenueInfluenced = 0;
     let revenueProtectionPct = 0;
 
-    if (
-      !skipRevenueImpact &&
-      revenueBand !== "unknown" &&
-      priorityCx
-    ) {
+    if (includeRevenueImpact && revenueBand !== "unknown" && priorityCx) {
       let approxRevenue = 0;
       switch (revenueBand) {
         case "lt50":
@@ -267,31 +235,17 @@ const EdgeTierRoiSimple: React.FC = () => {
           approxRevenue = 1_500_000_000;
           break;
       }
-      annualRevenueInfluenced = approxRevenue * 0.3;
-
-      let baseRevenuePct = 0;
-      if (revenueImpact === "cost") baseRevenuePct = 0.5;
-      if (revenueImpact === "retention") baseRevenuePct = 1.0;
-      if (revenueImpact === "upsell") baseRevenuePct = 1.5;
-
-      revenueProtectionPct = baseRevenuePct;
+      annualRevenueInfluenced = approxRevenue * 0.3; // assume 30% influenced by this team
+      revenueProtectionPct = 1.0; // 1% improvement on that influenced base
     }
 
-    let edgetierAnnualCost = customEdgetierCost;
-
-    if (investmentMode === "auto") {
-      let baseLicense = 150_000;
-      if (numAgents <= 50) baseLicense = 80_000;
-      else if (numAgents <= 100) baseLicense = 150_000;
-      else if (numAgents <= 250) baseLicense = 250_000;
-      else baseLicense = 350_000;
-
-      let rolloutMultiplier = 1;
-      if (rolloutScope === "few") rolloutMultiplier = 1.8;
-      if (rolloutScope === "multi") rolloutMultiplier = 2.5;
-
-      edgetierAnnualCost = baseLicense * rolloutMultiplier;
-    }
+    // EdgeTier investment – simple rule of thumb by team size
+    let edgetierAnnualCost = 150_000;
+    if (numAgents <= 25) edgetierAnnualCost = 80_000;
+    else if (numAgents <= 50) edgetierAnnualCost = 120_000;
+    else if (numAgents <= 100) edgetierAnnualCost = 180_000;
+    else if (numAgents <= 250) edgetierAnnualCost = 250_000;
+    else edgetierAnnualCost = 350_000;
 
     const newAhtMins =
       ahtMins * (1 - (ahtReductionPct || 0) / 100);
@@ -353,8 +307,6 @@ const EdgeTierRoiSimple: React.FC = () => {
 
     return {
       numAgents,
-      annualCostPerAgent,
-      contactsPerMonth,
       contactsPerYear,
       ahtMins,
       costPerContactBaseline,
@@ -372,392 +324,232 @@ const EdgeTierRoiSimple: React.FC = () => {
     };
   }, [
     teamSizeBand,
-    costMode,
-    knownCostPerAgent,
-    regionBand,
     contactVolumeBand,
     complexityLevel,
-    aiMaturity,
+    aiLevel,
     priorityAht,
     priorityQa,
     priorityDeflection,
     priorityCx,
     revenueBand,
-    revenueImpact,
-    skipRevenueImpact,
-    rolloutScope,
-    investmentMode,
-    customEdgetierCost,
+    includeRevenueImpact,
   ]);
 
-  const showResults = currentStep === 6;
+  const showResults = currentStep === 7;
   const complexity = COMPLEXITY_LEVELS[complexityLevel];
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 rounded-3xl bg-slate-50 p-6 shadow-sm lg:p-8">
+    <div className="mx-auto flex max-w-xl flex-col gap-6 rounded-3xl bg-slate-50 p-6 shadow-sm lg:p-8">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-slate-900 lg:text-3xl">
-          EdgeTier ROI Model – Guided Estimate
-        </h1>
-        <p className="max-w-2xl text-sm text-slate-600">
-          A short questionnaire for high-volume support teams in
-          e-commerce, travel, gaming and other customer-intensive
-          industries. We&apos;ll turn your answers into an ROI view
-          for EdgeTier&apos;s AI agent assistance and QA automation.
+        <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">
+          EdgeTier ROI Snapshot
         </p>
-
-        {/* Step indicator */}
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
-          {[1, 2, 3, 4, 5, 6].map((step) => (
-            <div key={step} className="flex items-center gap-2">
-              <div
-                className={`flex h-6 w-6 items-center justify-center rounded-full border text-[11px] ${
-                  currentStep === step
-                    ? "border-emerald-500 bg-emerald-500 text-white"
-                    : step < currentStep
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                    : "border-slate-300 bg-white text-slate-500"
-                }`}
-              >
-                {step}
-              </div>
-              <span className="hidden text-[11px] uppercase tracking-wide sm:inline">
-                {step === 1 && "Team"}
-                {step === 2 && "Volume"}
-                {step === 3 && "AI usage"}
-                {step === 4 && "Priorities"}
-                {step === 5 && "Business"}
-                {step === 6 && "Investment"}
-              </span>
-            </div>
-          ))}
-        </div>
+        <h1 className="text-2xl font-semibold text-slate-900 lg:text-3xl">
+          Let&apos;s estimate the impact for your team
+        </h1>
+        <p className="max-w-xl text-sm text-slate-600">
+          Answer a few quick questions about your contact centre. We&apos;ll
+          turn your inputs into an ROI view for EdgeTier.
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Question {currentStep} of 7
+        </p>
       </header>
 
-      {/* Wizard card */}
-      <div className="flex flex-col gap-4">
+      {/* Step card */}
+      <div className="rounded-2xl bg-white p-5 shadow-sm">
         {currentStep === 1 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 1 – Tell us about your team
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              1. How many agents are in your team?
             </h2>
-
-            <div className="space-y-4">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Team size
-                </p>
-                <div className="grid gap-2 md:grid-cols-3">
-                  {(
-                    ["10-25", "26-50", "51-100", "101-250", "250+"] as TeamSizeBand[]
-                  ).map((band) => (
-                    <button
-                      key={band}
-                      type="button"
-                      onClick={() => setTeamSizeBand(band)}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                        teamSizeBand === band
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {band} agents
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Approx. {TEAM_SIZE_MAP[band]} in scope
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Cost per agent
-                </p>
-
-                <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setCostMode("known")}
-                    className={`rounded-full px-3 py-1 ${
-                      costMode === "known"
-                        ? "bg-slate-900 text-slate-50"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    I know the all-in cost per agent
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCostMode("benchmark")}
-                    className={`rounded-full px-3 py-1 ${
-                      costMode === "benchmark"
-                        ? "bg-slate-900 text-slate-50"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    Use benchmark data by region
-                  </button>
-                </div>
-
-                {costMode === "known" ? (
-                  <div className="max-w-xs">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium text-slate-800">
-                        All-in cost per agent (per year)
-                      </span>
-                      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                        <input
-                          type="number"
-                          value={
-                            Number.isNaN(knownCostPerAgent)
-                              ? ""
-                              : knownCostPerAgent
-                          }
-                          onChange={(e) =>
-                            setKnownCostPerAgent(
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          min={0}
-                          step={1000}
-                          className="flex-1 bg-transparent text-sm outline-none"
-                        />
-                        <span className="whitespace-nowrap text-xs text-slate-500">
-                          €/year
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        Salary + benefits + overhead. A rough estimate is fine.
-                      </span>
-                    </label>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="mb-2 text-xs text-slate-600">
-                      Pick where most of your agents are based and we&apos;ll use
-                      typical fully-loaded cost benchmarks.
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {(
-                        [
-                          "UK_IE_NORDICS_ANZ",
-                          "SOUTHERN_EUROPE",
-                          "EASTERN_EUROPE",
-                          "APAC_INDIA_PH",
-                        ] as RegionBand[]
-                      ).map((region) => {
-                        const labelMap: Record<RegionBand, string> = {
-                          UK_IE_NORDICS_ANZ: "Ireland / UK / Nordics / ANZ",
-                          SOUTHERN_EUROPE: "Southern Europe",
-                          EASTERN_EUROPE: "Eastern Europe",
-                          APAC_INDIA_PH: "APAC / India / Philippines",
-                        };
-                        return (
-                          <button
-                            key={region}
-                            type="button"
-                            onClick={() => setRegionBand(region)}
-                            className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                              regionBand === region
-                                ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                            }`}
-                          >
-                            <span className="block font-semibold">
-                              {labelMap[region]}
-                            </span>
-                            <span className="text-[11px] text-slate-500">
-                              ~{formatCurrency(REGION_COST_MAP[region])} per
-                              agent / year
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+            <p className="mt-1 text-xs text-slate-600">
+              Just the agents you&apos;d include in an EdgeTier rollout.
+            </p>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {(
+                ["1-10", "11-25", "26-50", "51-100", "101-250", "250+"] as TeamSizeBand[]
+              ).map((band) => (
+                <button
+                  key={band}
+                  type="button"
+                  onClick={() => setTeamSizeBand(band)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs ${
+                    teamSizeBand === band
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="block font-semibold">
+                    {band} agents
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    We&apos;ll use ~{TEAM_SIZE_MAP[band]} in the model.
+                  </span>
+                </button>
+              ))}
             </div>
-          </section>
+          </>
         )}
 
         {currentStep === 2 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 2 – Volume and complexity
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              2. Roughly how many contacts does each agent handle per day?
             </h2>
-
-            <div className="space-y-5">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Contacts per agent per day
-                </p>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {(
-                    ["20-30", "30-40", "40-60", "60+"] as ContactVolumeBand[]
-                  ).map((band) => (
-                    <button
-                      key={band}
-                      type="button"
-                      onClick={() => setContactVolumeBand(band)}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                        contactVolumeBand === band
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {band} contacts / agent / day
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        We&apos;ll estimate monthly volume from this.
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Interaction complexity
-                </p>
-                <p className="mb-3 text-xs text-slate-600">
-                  Slide to the closest match. This is where sectors like
-                  e-commerce, travel and gaming typically sit.
-                </p>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Very quick</span>
-                    <span>Mixed</span>
-                    <span>Very complex</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={5}
-                    step={1}
-                    value={complexityLevel}
-                    onChange={(e) =>
-                      setComplexityLevel(
-                        Number(e.target.value) as ComplexityLevel
-                      )
-                    }
-                    className="w-full accent-emerald-600"
-                  />
-                </div>
-
-                <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-700">
-                  <p className="font-semibold text-slate-800">
-                    {complexity.label}
-                  </p>
-                  <p className="mt-1">{complexity.description}</p>
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    Estimated average handle time:{" "}
-                    <span className="font-semibold">
-                      {complexity.ahtMins} minutes
-                    </span>
-                    .
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {complexity.impactSummary}
-                  </p>
-                </div>
-              </div>
+            <p className="mt-1 text-xs text-slate-600">
+              A rough average is perfect – emails, chats and calls combined.
+            </p>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {(
+                ["10-20", "20-30", "30-40", "40-60", "60+"] as ContactVolumeBand[]
+              ).map((band) => (
+                <button
+                  key={band}
+                  type="button"
+                  onClick={() => setContactVolumeBand(band)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs ${
+                    contactVolumeBand === band
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="block font-semibold">
+                    {band} contacts / agent / day
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    We&apos;ll turn this into annual volume.
+                  </span>
+                </button>
+              ))}
             </div>
-          </section>
+          </>
         )}
 
         {currentStep === 3 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 3 – AI and automation today
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              3. How complex are your customer interactions?
             </h2>
-            <p className="mb-4 text-xs text-slate-600">
-              This calibrates what EdgeTier can realistically add on top of your
-              current tooling.
+            <p className="mt-1 text-xs text-slate-600">
+              Slide to the closest match. Think about a typical case mix today.
             </p>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <button
-                type="button"
-                onClick={() => setAiMaturity("low")}
-                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
-                  aiMaturity === "low"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                }`}
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide">
-                  Low automation
-                </span>
-                <p className="text-[11px]">
-                  Mostly manual work. Macros/templates, little or no AI in agent
-                  workflows. QA is sampled manually.
-                </p>
-                <p className="mt-2 text-[10px] text-slate-500">
-                  Highest upside for AHT, QA and contact reduction.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAiMaturity("moderate")}
-                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
-                  aiMaturity === "moderate"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                }`}
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide">
-                  Moderate automation
-                </span>
-                <p className="text-[11px]">
-                  Some AI in routing, bots or tagging. QA partly automated or
-                  sampled. Insights are available but not always actioned.
-                </p>
-                <p className="mt-2 text-[10px] text-slate-500">
-                  Balanced, realistic improvement assumptions.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAiMaturity("advanced")}
-                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
-                  aiMaturity === "advanced"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                }`}
-              >
-                <span className="text-[11px] font-semibold uppercase tracking-wide">
-                  Advanced automation
-                </span>
-                <p className="text-[11px]">
-                  AI already supports core workflows – agent assist, QA scoring,
-                  categorisation. Looking for the next layer of impact.
-                </p>
-                <p className="mt-2 text-[10px] text-slate-500">
-                  We assume smaller but still meaningful gains.
-                </p>
-              </button>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <span>Very quick</span>
+                <span>Mixed</span>
+                <span>Very complex</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={complexityLevel}
+                onChange={(e) =>
+                  setComplexityLevel(
+                    Number(e.target.value) as ComplexityLevel
+                  )
+                }
+                className="w-full accent-emerald-600"
+              />
             </div>
-          </section>
+
+            <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-700">
+              <p className="font-semibold text-slate-800">
+                {complexity.label}
+              </p>
+              <p className="mt-1">{complexity.description}</p>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Estimated average handle time:{" "}
+                <span className="font-semibold">
+                  {complexity.ahtMins} minutes
+                </span>
+                .
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {complexity.impactSummary}
+              </p>
+            </div>
+          </>
         )}
 
         {currentStep === 4 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 4 – What matters most?
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              4. What&apos;s your current level of AI automation?
             </h2>
-            <p className="mb-4 text-xs text-slate-600">
-              We&apos;ll focus the ROI model on the outcomes you care about most.
+            <p className="mt-1 text-xs text-slate-600">
+              Roughly how much AI is already helping agents today?
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => setAiLevel("low")}
+                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
+                  aiLevel === "low"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide">
+                  Low
+                </span>
+                <p className="text-[11px]">
+                  Mostly manual work, macros/templates. Little or no AI in
+                  workflows. QA sampled manually.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiLevel("medium")}
+                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
+                  aiLevel === "medium"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide">
+                  Medium
+                </span>
+                <p className="text-[11px]">
+                  Some AI in routing, bots or tagging. QA partly automated,
+                  insights available but not always actioned.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiLevel("high")}
+                className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left text-xs ${
+                  aiLevel === "high"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide">
+                  High
+                </span>
+                <p className="text-[11px]">
+                  AI already supports core workflows – agent assist, QA scoring,
+                  categorisation across channels.
+                </p>
+              </button>
+            </div>
+          </>
+        )}
+
+        {currentStep === 5 && (
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              5. What are your top priorities for the coming period?
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Pick the outcomes that matter most. We&apos;ll emphasise those in
+              the model.
             </p>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               <button
                 type="button"
                 onClick={() => setPriorityAht((v) => !v)}
@@ -789,8 +581,8 @@ const EdgeTierRoiSimple: React.FC = () => {
                   Reduce QA / coaching workload
                 </span>
                 <p className="text-[11px]">
-                  Automate QA across every interaction and give team leads time
-                  back for coaching.
+                  Automate QA across interactions and free time for better
+                  coaching.
                 </p>
               </button>
 
@@ -804,11 +596,11 @@ const EdgeTierRoiSimple: React.FC = () => {
                 }`}
               >
                 <span className="text-[11px] font-semibold uppercase tracking-wide">
-                  Reduce unnecessary / repeat contacts
+                  Cut unnecessary / repeat contacts
                 </span>
                 <p className="text-[11px]">
-                  Spot issues earlier and cut avoidable &quot;where is my
-                  order?&quot; and &quot;why was I charged?&quot; contacts.
+                  Spot issues earlier and reduce repeat &quot;where is my
+                  order?&quot; type contacts.
                 </p>
               </button>
 
@@ -826,429 +618,237 @@ const EdgeTierRoiSimple: React.FC = () => {
                 </span>
                 <p className="text-[11px]">
                   Lift customer experience and protect revenue by fixing issues
-                  before they snowball.
+                  earlier.
                 </p>
               </button>
             </div>
-          </section>
-        )}
-
-        {currentStep === 5 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 5 – Business and revenue context
-            </h2>
-            <p className="mb-4 text-xs text-slate-600">
-              Optional. Skip this if you just want to see operational savings.
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Business size
-                </p>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {(
-                    ["unknown", "lt50", "50-250", "250-1000", "gt1000"] as RevenueBand[]
-                  ).map((band) => {
-                    const labelMap: Record<RevenueBand, string> = {
-                      unknown: "I don't know / prefer not to say",
-                      lt50: "< €50m annual revenue",
-                      "50-250": "€50m – €250m",
-                      "250-1000": "€250m – €1bn",
-                      gt1000: "> €1bn",
-                    };
-                    return (
-                      <button
-                        key={band}
-                        type="button"
-                        onClick={() => setRevenueBand(band)}
-                        className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                          revenueBand === band
-                            ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                        }`}
-                      >
-                        <span className="block font-semibold">
-                          {labelMap[band]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {revenueBand !== "unknown" && (
-                <div className="border-t border-slate-100 pt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    How this team impacts revenue
-                  </p>
-                  <div className="grid gap-2 md:grid-cols-3">
-                    <button
-                      type="button"
-                      onClick={() => setRevenueImpact("cost")}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                        revenueImpact === "cost"
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                        Mostly cost centre
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Limited direct revenue impact.
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRevenueImpact("retention")}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                        revenueImpact === "retention"
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                        Retention critical
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Renewals / churn prevention.
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRevenueImpact("upsell")}
-                      className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                        revenueImpact === "upsell"
-                          ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                        Upsell / expansion
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Sales-adjacent, drives expansion.
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-xs">
-                <input
-                  id="skip-revenue"
-                  type="checkbox"
-                  checked={skipRevenueImpact}
-                  onChange={(e) =>
-                    setSkipRevenueImpact(e.target.checked)
-                  }
-                  className="h-3 w-3 accent-emerald-600"
-                />
-                <label htmlFor="skip-revenue" className="text-slate-700">
-                  Don&apos;t include revenue impact – just show operational
-                  savings.
-                </label>
-              </div>
-            </div>
-          </section>
+          </>
         )}
 
         {currentStep === 6 && (
-          <section className="rounded-2xl bg-white p-4 shadow-sm lg:p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Step 6 – Rollout and investment
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              6. How big is the business this team supports?
             </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              This is only used if you&apos;d like us to include revenue impact.
+            </p>
 
-            <div className="space-y-4">
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Where would you start with EdgeTier?
-                </p>
-                <div className="grid gap-2 md:grid-cols-3">
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {(
+                ["unknown", "lt50", "50-250", "250-1000", "gt1000"] as RevenueBand[]
+              ).map((band) => {
+                const labelMap: Record<RevenueBand, string> = {
+                  unknown: "I don't know / prefer not to say",
+                  lt50: "< €50m annual revenue",
+                  "50-250": "€50m – €250m",
+                  "250-1000": "€250m – €1bn",
+                  gt1000: "> €1bn",
+                };
+                return (
                   <button
+                    key={band}
                     type="button"
-                    onClick={() => setRolloutScope("single")}
+                    onClick={() => setRevenueBand(band)}
                     className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                      rolloutScope === "single"
+                      revenueBand === band
                         ? "border-emerald-500 bg-emerald-50 text-emerald-800"
                         : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                     }`}
                   >
-                    <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                      This team / region
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      Pilot or single BU rollout.
+                    <span className="block font-semibold">
+                      {labelMap[band]}
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setRolloutScope("few")}
-                    className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                      rolloutScope === "few"
-                        ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                    }`}
-                  >
-                    <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                      2–3 teams / regions
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      Broader multi-team rollout.
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRolloutScope("multi")}
-                    className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                      rolloutScope === "multi"
-                        ? "border-emerald-500 bg-emerald-50 text-emerald-800"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                    }`}
-                  >
-                    <span className="block font-semibold text-[11px] uppercase tracking-wide">
-                      4+ / multi-country
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      Large-scale deployment.
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  How should we estimate EdgeTier investment?
-                </p>
-                <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setInvestmentMode("auto")}
-                    className={`rounded-full px-3 py-1 ${
-                      investmentMode === "auto"
-                        ? "bg-slate-900 text-slate-50"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    Use a typical estimate for my team size
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInvestmentMode("custom")}
-                    className={`rounded-full px-3 py-1 ${
-                      investmentMode === "custom"
-                        ? "bg-slate-900 text-slate-50"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    I&apos;ll input my own ballpark
-                  </button>
-                </div>
-
-                {investmentMode === "custom" && (
-                  <div className="max-w-xs">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium text-slate-800">
-                        EdgeTier annual cost (ballpark)
-                      </span>
-                      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                        <input
-                          type="number"
-                          value={
-                            Number.isNaN(customEdgetierCost)
-                              ? ""
-                              : customEdgetierCost
-                          }
-                          onChange={(e) =>
-                            setCustomEdgetierCost(
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          min={0}
-                          step={10000}
-                          className="flex-1 bg-transparent text-sm outline-none"
-                        />
-                        <span className="whitespace-nowrap text-xs text-slate-500">
-                          €/year
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        A simple ballpark is enough for this model.
-                      </span>
-                    </label>
-                  </div>
-                )}
-
-                {investmentMode === "auto" && (
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    We&apos;ll estimate licence cost from team size and rollout
-                    scope. This is not an official quote, just a planning
-                    number.
-                  </p>
-                )}
-              </div>
+                );
+              })}
             </div>
-          </section>
+
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-slate-50 p-3 text-xs">
+              <input
+                id="include-revenue"
+                type="checkbox"
+                checked={includeRevenueImpact}
+                onChange={(e) =>
+                  setIncludeRevenueImpact(e.target.checked)
+                }
+                className="h-3 w-3 accent-emerald-600"
+              />
+              <label
+                htmlFor="include-revenue"
+                className="text-slate-700"
+              >
+                Include a conservative view of revenue impact (if CSAT / NPS is
+                a priority).
+              </label>
+            </div>
+          </>
         )}
 
-        {/* Step controls */}
-        <div className="mt-1 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={goBack}
-            disabled={currentStep === 1}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-              currentStep === 1
-                ? "cursor-not-allowed bg-slate-200 text-slate-400"
-                : "bg-white text-slate-700 shadow-sm hover:bg-slate-100"
-            }`}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={currentStep === 6}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
-              currentStep === 6
-                ? "cursor-not-allowed bg-emerald-200 text-emerald-700"
-                : "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
-            }`}
-          >
-            {currentStep < 5 && "Next"}
-            {currentStep === 5 && "Set investment"}
-            {currentStep === 6 && "See results below"}
-          </button>
-        </div>
+        {currentStep === 7 && (
+          <>
+            <h2 className="text-sm font-semibold text-slate-900">
+              7. Your EdgeTier ROI snapshot
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Based on your answers, here&apos;s what the model suggests.
+            </p>
+
+            <div className="mt-4 rounded-2xl bg-slate-900 p-4 text-slate-50">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Estimated annual impact
+              </p>
+              <p className="mt-2 text-3xl font-semibold">
+                {formatCurrency(results.totalAnnualBenefit)}
+              </p>
+              <p className="mt-1 text-xs text-slate-300">
+                Combined cost savings and (if selected) revenue protected for
+                this team.
+              </p>
+
+              <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Net gain after EdgeTier
+                    </span>
+                    <span className="text-lg font-semibold">
+                      {formatCurrency(results.netGain)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                      ROI
+                    </span>
+                    <span className="text-lg font-semibold">
+                      {formatPercent(results.roiPct)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Payback period
+                    </span>
+                    <span className="text-lg font-semibold">
+                      {results.paybackMonths > 0
+                        ? `${results.paybackMonths.toFixed(1)} months`
+                        : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                      EdgeTier investment (est.)
+                    </span>
+                    <span className="text-lg font-semibold">
+                      {formatCurrency(results.edgetierAnnualCost)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-baseline justify-between">
+                    <span>Handling time savings</span>
+                    <span className="font-medium">
+                      {formatCurrency(results.savingsAht)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span>QA and coaching savings</span>
+                    <span className="font-medium">
+                      {formatCurrency(results.savingsQa)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span>Contact reduction savings</span>
+                    <span className="font-medium">
+                      {formatCurrency(results.savingsDeflection)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span>Revenue protected</span>
+                    <span className="font-medium">
+                      {formatCurrency(results.revenueProtected)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span>Hours saved per year</span>
+                    <span className="font-medium">
+                      {formatNumber(results.totalHoursSaved)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="my-4 border-slate-700" />
+
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Scenario context
+              </p>
+              <ul className="space-y-1 text-xs text-slate-200">
+                <li>
+                  Agents in scope:{" "}
+                  <span className="font-semibold">
+                    {formatNumber(results.numAgents)}
+                  </span>
+                </li>
+                <li>
+                  Contacts per year:{" "}
+                  <span className="font-semibold">
+                    {formatNumber(results.contactsPerYear)}
+                  </span>
+                </li>
+                <li>
+                  Estimated AHT:{" "}
+                  <span className="font-semibold">
+                    {results.ahtMins.toFixed(1)} mins
+                  </span>
+                </li>
+                <li>
+                  Baseline cost per contact:{" "}
+                  <span className="font-semibold">
+                    {formatCurrency(results.costPerContactBaseline)}
+                  </span>
+                </li>
+                <li>
+                  Contacts avoided per year:{" "}
+                  <span className="font-semibold">
+                    {formatNumber(results.contactsAvoidedPerYear)}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Results – only after step 6, below the wizard */}
-      {showResults && (
-        <section className="rounded-2xl bg-slate-900 p-5 text-slate-50 shadow-md">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Estimated annual impact for this scenario
-          </p>
-          <p className="mt-2 text-3xl font-semibold">
-            {formatCurrency(results.totalAnnualBenefit)}
-          </p>
-          <p className="mt-1 text-xs text-slate-300">
-            Combined cost savings and (optionally) revenue protected for this
-            team and rollout.
-          </p>
-
-          <div className="mt-5 grid gap-3 text-sm md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Net gain after EdgeTier
-                </span>
-                <span className="text-lg font-semibold">
-                  {formatCurrency(results.netGain)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                  ROI
-                </span>
-                <span className="text-lg font-semibold">
-                  {formatPercent(results.roiPct)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Payback period
-                </span>
-                <span className="text-lg font-semibold">
-                  {results.paybackMonths > 0
-                    ? `${results.paybackMonths.toFixed(1)} months`
-                    : "-"}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                  EdgeTier investment (est.)
-                </span>
-                <span className="text-lg font-semibold">
-                  {formatCurrency(results.edgetierAnnualCost)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2 text-sm">
-              <div className="flex items-baseline justify-between">
-                <span>Handling time savings</span>
-                <span className="font-medium">
-                  {formatCurrency(results.savingsAht)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span>QA and coaching savings</span>
-                <span className="font-medium">
-                  {formatCurrency(results.savingsQa)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span>Contact reduction savings</span>
-                <span className="font-medium">
-                  {formatCurrency(results.savingsDeflection)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span>Revenue protected</span>
-                <span className="font-medium">
-                  {formatCurrency(results.revenueProtected)}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span>Hours saved per year</span>
-                <span className="font-medium">
-                  {formatNumber(results.totalHoursSaved)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <hr className="my-4 border-slate-700" />
-
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Scenario context
-          </p>
-          <ul className="space-y-1 text-xs text-slate-200">
-            <li>
-              Agents in scope:{" "}
-              <span className="font-semibold">
-                {formatNumber(results.numAgents)}
-              </span>
-            </li>
-            <li>
-              Contacts per year:{" "}
-              <span className="font-semibold">
-                {formatNumber(results.contactsPerYear)}
-              </span>
-            </li>
-            <li>
-              Estimated AHT:{" "}
-              <span className="font-semibold">
-                {results.ahtMins.toFixed(1)} mins
-              </span>
-            </li>
-            <li>
-              Baseline cost per contact:{" "}
-              <span className="font-semibold">
-                {formatCurrency(results.costPerContactBaseline)}
-              </span>
-            </li>
-            <li>
-              Contacts avoided per year:{" "}
-              <span className="font-semibold">
-                {formatNumber(results.contactsAvoidedPerYear)}
-              </span>
-            </li>
-          </ul>
-        </section>
-      )}
+      {/* Navigation */}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={currentStep === 1}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+            currentStep === 1
+              ? "cursor-not-allowed bg-slate-200 text-slate-400"
+              : "bg-white text-slate-700 shadow-sm hover:bg-slate-100"
+          }`}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={currentStep === 7}
+          className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
+            currentStep === 7
+              ? "cursor-not-allowed bg-emerald-200 text-emerald-700"
+              : "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
+          }`}
+        >
+          {currentStep < 6 && "Next question"}
+          {currentStep === 6 && "Show my results"}
+          {currentStep === 7 && "Done"}
+        </button>
+      </div>
     </div>
   );
 };
